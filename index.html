@@ -3,149 +3,315 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Configurador de Residencia - IoT Cloud Total</title>
+    <title>Sistema de Supervisión IoT - Residencia Profesional</title>
     <script src="https://unpkg.com/mqtt@4.3.7/dist/mqtt.min.js" type="text/javascript"></script>
     <style>
-        body { font-family: 'Segoe UI', sans-serif; text-align: center; background-color: #f0f2f5; margin: 0; padding: 20px; }
-        h1 { color: #333; font-weight: 300; margin-bottom: 5px; }
-        h2 { color: #555; font-weight: 400; margin-top: 30px; border-bottom: 2px solid #ccc; padding-bottom: 10px; max-width: 1000px; margin-left: auto; margin-right: auto;}
+        :root {
+            --bg-principal: #f4f6f9;
+            --azul-industrial: #1e3a8a;
+            --azul-electrico: #2563eb;
+            --texto-oscuro: #1e293b;
+            --texto-mutado: #64748b;
+            --verde-exito: #10b981;
+            --rojo-alerta: #ef4444;
+            --gris-espera: #94a3b8;
+        }
+
+        body { 
+            font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, sans-serif; 
+            background-color: var(--bg-principal); 
+            color: var(--texto-oscuro);
+            margin: 0; 
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        /* Encabezado Profesional */
+        header {
+            width: 100%;
+            background: linear-gradient(135deg, var(--azul-industrial) 0%, #0f172a 100%);
+            color: white;
+            padding: 30px 20px;
+            box-sizing: border-box;
+            text-align: center;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+
+        header h1 { 
+            margin: 0; 
+            font-size: 1.8rem; 
+            font-weight: 600; 
+            letter-spacing: 0.5px;
+        }
         
-        .status-bar { padding: 8px; margin-bottom: 20px; font-weight: bold; color: white; background-color: #7f8c8d; border-radius: 5px; max-width: 350px; margin: 10px auto; transition: background-color 0.15s; }
-        .connected { background-color: #2ecc71; }
-        .hardware-offline { background-color: #e74c3c; }
+        header p {
+            margin: 5px 0 0 0;
+            color: #93c5fd;
+            font-size: 0.95rem;
+            font-weight: 300;
+        }
 
-        .container-salidas { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; max-width: 1100px; margin: 0 auto; }
-        .card-salida { background: white; padding: 20px; border-radius: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); border-top: 6px solid #ccc; display: flex; flex-direction: column; justify-content: space-between; align-items: center; transition: transform 0.2s; }
-        .card-salida:hover { transform: translateY(-3px); }
+        /* Contenedor Principal */
+        .main-dashboard {
+            width: 100%;
+            max-width: 1200px;
+            padding: 30px 20px;
+            box-sizing: border-box;
+        }
         
-        .card-out-0 { border-top-color: #FF5733; } .card-out-1 { border-top-color: #33FF57; }
-        .card-out-2 { border-top-color: #3357FF; } .card-out-3 { border-top-color: #F333FF; }
-        .card-out-4 { border-top-color: #FFBD33; } .card-out-5 { border-top-color: #33FFF3; }
-        .card-out-6 { border-top-color: #8D33FF; } .card-out-7 { border-top-color: #FF3380; }
+        /* Barra de Estado Estilo Panel de Control */
+        .status-bar { 
+            padding: 12px 24px; 
+            margin: -50px auto 30px auto; 
+            font-weight: 600; 
+            color: white; 
+            background-color: var(--gris-espera); 
+            border-radius: 50px; 
+            max-width: 400px; 
+            box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1);
+            text-align: center;
+            font-size: 0.9rem;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            position: relative;
+            z-index: 10;
+        }
+        .connected { background-color: var(--verde-exito); }
+        .hardware-offline { background-color: var(--rojo-alerta); }
 
-        .config-group { text-align: left; font-size: 0.9em; color: #555; width: 100%; margin: 12px 0; }
-        .config-group label { display: block; margin-bottom: 5px; font-weight: bold; }
-        .config-group select, .config-group input[type="number"] { width: 100%; padding: 6px; border-radius: 6px; border: 1px solid #ccc; box-sizing: border-box; background-color: #fff; }
+        h2 { 
+            color: var(--azul-industrial); 
+            font-size: 1.3rem; 
+            font-weight: 600; 
+            margin-top: 10px; 
+            margin-bottom: 20px;
+            text-align: left;
+            border-left: 4px solid var(--azul-electrico);
+            padding-left: 10px;
+        }
 
-        .switch { position: relative; display: inline-block; width: 60px; height: 34px; margin-top: 10px; }
+        /* Grid de Salidas */
+        .container-salidas {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 25px;
+            margin-bottom: 40px;
+        }
+
+        .card-salida { 
+            background: white; 
+            padding: 24px; 
+            border-radius: 16px; 
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -1px rgba(0,0,0,0.03);
+            border: 1px solid #e2e8f0;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            align-items: center;
+            transition: all 0.25s ease;
+            position: relative;
+            overflow: hidden;
+        }
+        .card-salida:hover { 
+            transform: translateY(-4px); 
+            box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1);
+        }
+        
+        /* Líneas de acento de color profesionales */
+        .card-salida::before {
+            content: "";
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            height: 5px;
+            background-color: var(--gris-espera);
+        }
+        .card-out-0::before { background-color: #3b82f6; } .card-out-1::before { background-color: #10b981; }
+        .card-out-2::before { background-color: #6366f1; } .card-out-3 { border-top-color: #d946ef; } /* Fallback */
+        .card-out-3::before { background-color: #d946ef; } .card-out-4::before { background-color: #f59e0b; }
+        .card-out-5::before { background-color: #06b6d4; } .card-out-6::before { background-color: #8b5cf6; }
+        .card-out-7::before { background-color: #ec4899; }
+
+        .card-salida h3 { 
+            margin: 0 0 15px 0; 
+            font-size: 1.15rem; 
+            font-weight: 600;
+            color: var(--texto-oscuro);
+        }
+
+        .config-group { text-align: left; font-size: 0.85rem; color: var(--texto-mutado); width: 100%; margin: 8px 0; }
+        .config-group label { display: block; margin-bottom: 6px; font-weight: 500; }
+        
+        .config-group select, .config-group input[type="number"] { 
+            width: 100%; 
+            padding: 8px 12px; 
+            border-radius: 8px; 
+            border: 1px solid #cbd5e1; 
+            box-sizing: border-box; 
+            background-color: #f8fafc; 
+            color: var(--texto-oscuro);
+            font-family: inherit;
+            font-size: 0.85rem;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        .config-group select:focus, .config-group input[type="number"]:focus {
+            border-color: var(--azul-electrico);
+            background-color: #fff;
+        }
+
+        /* Interruptores Estilo iOS Clean */
+        .switch { position: relative; display: inline-block; width: 56px; height: 30px; margin-top: 15px; }
         .switch input { opacity: 0; width: 0; height: 0; }
-        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; transition: .4s; border-radius: 34px; }
-        .slider:before { position: absolute; content: ""; height: 26px; width: 26px; left: 4px; bottom: 4px; background-color: white; transition: .4s; border-radius: 50%; }
+        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #e2e8f0; transition: .3s cubic-bezier(0.4, 0, 0.2, 1); border-radius: 30px; }
+        .slider:before { position: absolute; content: ""; height: 22px; width: 22px; left: 4px; bottom: 4px; background-color: white; transition: .3s cubic-bezier(0.4, 0, 0.2, 1); border-radius: 50%; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
         
-        .card-out-0 input:checked + .slider { background-color: #FF5733; }
-        .card-out-1 input:checked + .slider { background-color: #33FF57; }
-        .card-out-2 input:checked + .slider { background-color: #3357FF; }
-        .card-out-3 input:checked + .slider { background-color: #F333FF; }
-        .card-out-4 input:checked + .slider { background-color: #FFBD33; }
-        .card-out-5 input:checked + .slider { background-color: #33FFF3; }
-        .card-out-6 input:checked + .slider { background-color: #8D33FF; }
-        .card-out-7 input:checked + .slider { background-color: #FF3380; }
+        input:checked + .slider { background-color: var(--azul-electrico); }
         input:checked + .slider:before { transform: translateX(26px); }
 
-        .container-entradas { display: flex; justify-content: center; gap: 15px; flex-wrap: wrap; max-width: 1000px; margin: 20px auto 0 auto; }
-        .card-entrada { background: white; padding: 15px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); width: 95px; text-align: center; border-bottom: 4px solid #7f8c8d; }
-        .led-grafico { width: 30px; height: 30px; border-radius: 50%; background-color: #bdc3c7; margin: 10px auto 0 auto; box-shadow: inset 0 2px 5px rgba(0,0,0,0.2); transition: background-color 0.15s, box-shadow 0.15s; }
-        .led-grafico.activo { background-color: #3498db; box-shadow: 0 0 15px #3498db, inset 0 2px 5px rgba(255,255,255,0.6); }
-        .label-entrada { font-size: 0.85em; color: #2c3e50; font-weight: bold; }
+        /* Contenedor de Sensores Tipo Matriz Industrial */
+        .container-entradas { 
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+        
+        .card-entrada { 
+            background: white; 
+            padding: 16px; 
+            border-radius: 12px; 
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05); 
+            text-align: center; 
+            border: 1px solid #e2e8f0;
+            transition: background-color 0.2s;
+        }
+        
+        .label-entrada { font-size: 0.8rem; color: var(--texto-mutado); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+        
+        .led-grafico { 
+            width: 24px; 
+            height: 24px; 
+            border-radius: 50%; 
+            background-color: #e2e8f0; 
+            margin: 12px auto 0 auto; 
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.06); 
+            transition: all 0.2s ease;
+            border: 2px solid #fff;
+        }
+        /* LED Encendido: Azul Eléctrico Industrial con brillo de estado */
+        .led-grafico.activo { 
+            background-color: var(--azul-electrico); 
+            box-shadow: 0 0 12px rgba(37, 99, 235, 0.6), inset 0 2px 4px rgba(255,255,255,0.4); 
+        }
     </style>
 </head>
 <body>
-    <h1>Proyecto de Residencia (Control Mundial IoT)</h1>
-    <div id="status-label" class="status-bar">Conectando a la red IoT...</div>
-    
-    <h2>Control de Actuadores (Estable / Un Solo Pulso)</h2>
-    <div class="container-salidas">
-        <script>
-            const coloresSalidas = ['#FF5733','#33FF57','#3357FF','#F333FF','#FFBD33','#33FFF3','#8D33FF','#FF3380'];
-            let pulsosTemporizadores = Array(8).fill(null);
 
-            for(let i=0; i<8; i++) {
-                document.write(`
-                    <div class="card-salida card-out-${i}">
-                        <h3 style="color: ${coloresSalidas[i]}; margin: 0 0 10px 0;">Actuador ${i}</h3>
-                        <div class="config-group">
-                            <label>Modo de Trabajo:</label>
-                            <select id="mode-${i}" onchange="cambiarModoTrabajo(${i})">
-                                <option value="estable">Estable (Normal)</option>
-                                <option value="pulso_unico">Un Solo Pulso</option>
-                            </select>
-                        </div>
-                        <div class="config-group" id="time-group-${i}" style="display: none;">
-                            <label>Duración (ms):</label>
-                            <input type="number" id="time-${i}" value="1000" min="50" step="50">
-                        </div>
-                        <label class="switch">
-                            <input type="checkbox" id="web-switch-${i}" onclick="manejadorSwitch(${i})">
-                            <span class="slider"></span>
-                        </label>
-                    </div>
-                `);
-            }
+    <header>
+        <h1>Plataforma de Supervisión y Configuración IoT</h1>
+        <p>Interfaz Web de Gestión Remota mediante Protocolo MQTT</p>
+    </header>
 
-            function cambiarModoTrabajo(id) {
-                const modo = document.getElementById(`mode-${id}`).value;
-                const grupoTiempo = document.getElementById(`time-group-${id}`);
-                const checkbox = document.getElementById(`web-switch-${id}`);
-                
-                if(pulsosTemporizadores[id] !== null) {
-                    clearTimeout(pulsosTemporizadores[id]);
-                    pulsosTemporizadores[id] = null;
+    <div class="main-dashboard">
+        <div id="status-label" class="status-bar">Conectando a la red IoT...</div>
+        
+        <h2>Control de Salidas Digitales</h2>
+        <div class="container-salidas">
+            <script>
+                let pulsosTemporizadores = Array(8).fill(null);
+
+                for(let i=0; i<8; i++) {
+                    document.write(`
+                        <div class="card-salida card-out-${i}">
+                            <h3>Salida ${i}</h3>
+                            <div class="config-group">
+                                <label>Modo Operativo:</label>
+                                <select id="mode-${i}" onchange="cambiarModoTrabajo(${i})">
+                                    <option value="estable">Estable (Enclavado)</option>
+                                    <option value="pulso_unico">Un Solo Pulso</option>
+                                </select>
+                            </div>
+                            <div class="config-group" id="time-group-${i}" style="display: none;">
+                                <label>Temporización (ms):</label>
+                                <input type="number" id="time-${i}" value="1000" min="50" step="50">
+                            </div>
+                            <label class="switch">
+                                <input type="checkbox" id="web-switch-${i}" onclick="manejadorSwitch(${i})">
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                    `);
                 }
 
-                if (modo === "pulso_unico") {
-                    grupoTiempo.style.display = "block";
-                } else {
-                    grupoTiempo.style.display = "none";
-                    if(checkbox.checked) {
-                        checkbox.checked = false;
-                        publicarSalidaIoT(id, 0);
+                function cambiarModoTrabajo(id) {
+                    const modo = document.getElementById(`mode-${id}`).value;
+                    const grupoTiempo = document.getElementById(`time-group-${id}`);
+                    const checkbox = document.getElementById(`web-switch-${id}`);
+                    
+                    if(pulsosTemporizadores[id] !== null) {
+                        clearTimeout(pulsosTemporizadores[id]);
+                        pulsosTemporizadores[id] = null;
                     }
-                }
-            }
 
-            function manejadorSwitch(id) {
-                const modo = document.getElementById(`mode-${id}`).value;
-                const checkbox = document.getElementById(`web-switch-${id}`);
-                let estadoSincro = checkbox.checked ? 1 : 0;
-
-                if (modo === "estable") {
-                    publicarSalidaIoT(id, estadoSincro);
-                } else if (modo === "pulso_unico") {
-                    if (checkbox.checked) {
-                        publicarSalidaIoT(id, 1);
-                        const tiempoDuracion = parseInt(document.getElementById(`time-${id}`).value) || 1000;
-                        
-                        if(pulsosTemporizadores[id] !== null) clearTimeout(pulsosTemporizadores[id]);
-
-                        pulsosTemporizadores[id] = setTimeout(() => {
-                            checkbox.checked = false;
-                            publicarSalidaIoT(id, 0); 
-                            pulsosTemporizadores[id] = null;
-                        }, tiempoDuracion);
+                    if (modo === "pulso_unico") {
+                        grupoTiempo.style.display = "block";
                     } else {
-                        if(pulsosTemporizadores[id] !== null) {
-                            clearTimeout(pulsosTemporizadores[id]);
-                            pulsosTemporizadores[id] = null;
+                        grupoTiempo.style.display = "none";
+                        if(checkbox.checked) {
+                            checkbox.checked = false;
+                            publicarSalidaIoT(id, 0);
                         }
-                        publicarSalidaIoT(id, 0);
                     }
                 }
-            }
-        </script>
-    </div>
 
-    <h2>Monitoreo de Sensores (Entradas PORTB del PIC)</h2>
-    <div class="container-entradas">
-        <script>
-            for(let i=0; i<8; i++) {
-                document.write(`
-                    <div class="card-entrada">
-                        <span class="label-entrada">Sensor RB${i}</span>
-                        <div class="led-grafico" id="pic-led-${i}"></div>
-                    </div>
-                `);
-            }
-        </script>
+                function manejadorSwitch(id) {
+                    const modo = document.getElementById(`mode-${id}`).value;
+                    const checkbox = document.getElementById(`web-switch-${id}`);
+                    let estadoSincro = checkbox.checked ? 1 : 0;
+
+                    if (modo === "estable") {
+                        publicarSalidaIoT(id, estadoSincro);
+                    } else if (modo === "pulso_unico") {
+                        if (checkbox.checked) {
+                            publicarSalidaIoT(id, 1);
+                            const tiempoDuracion = parseInt(document.getElementById(`time-${id}`).value) || 1000;
+                            
+                            if(pulsosTemporizadores[id] !== null) clearTimeout(pulsosTemporizadores[id]);
+
+                            pulsosTemporizadores[id] = setTimeout(() => {
+                                checkbox.checked = false;
+                                publicarSalidaIoT(id, 0); 
+                                pulsosTemporizadores[id] = null;
+                            }, tiempoDuracion);
+                        } else {
+                            if(pulsosTemporizadores[id] !== null) {
+                                clearTimeout(pulsosTemporizadores[id]);
+                                pulsosTemporizadores[id] = null;
+                            }
+                            publicarSalidaIoT(id, 0);
+                        }
+                    }
+                }
+            </script>
+        </div>
+
+        <h2>Monitoreo de Sensores Periféricos</h2>
+        <div class="container-entradas">
+            <script>
+                for(let i=0; i<8; i++) {
+                    document.write(`
+                        <div class="card-entrada">
+                            <span class="label-entrada">Sensor ${i}</span>
+                            <div class="led-grafico" id="pic-led-${i}"></div>
+                        </div>
+                    `);
+                }
+            </script>
+        </div>
     </div>
 
     <script>
@@ -174,30 +340,27 @@
         client.on('close', () => { marcarHardwareOffline(); });
 
         client.on('message', (topic, message) => {
-            // A. FILTRO POR SELLO DE TIEMPO DINÁMICO
+            // A. Filtro Watchdog por Sello de Tiempo Dinámico
             if(topic === TOPIC_ESTADO) {
                 let valorPulsoActual = parseInt(message.toString());
 
                 if (valorPulsoActual <= ultimoValorPulso) {
-                    console.log("Falso positivo bloqueado con éxito.");
                     return; 
                 }
 
                 ultimoValorPulso = valorPulsoActual; 
 
                 const label = document.getElementById("status-label");
-                label.innerText = "Conectado - Hardware en Línea";
+                label.innerText = "SISTEMA ONLINE - HARDWARE EN LÍNEA";
                 label.className = "status-bar connected";
 
                 if (watchdogHardware) clearTimeout(watchdogHardware);
-                
-                // Ventana de tolerancia ampliada a 4 segundos para absorber ráfagas de la UART
                 watchdogHardware = setTimeout(() => {
                     marcarHardwareOffline();
                 }, 4000); 
             }
 
-            // B. Manejo de sensores
+            // B. Manejo de Sensores Binarios
             if(topic === TOPIC_ENTRADAS) {
                 let valorEntradas = parseInt(message.toString());
                 for(let i=0; i<8; i++) {
@@ -207,7 +370,7 @@
                 }
             }
             
-            // C. Sincronización de switches
+            // C. Sincronización Multi-dispositivo de Canales de Salida
             if(topic.startsWith(TOPIC_SALIDAS_BASE)) {
                 let idSalida = parseInt(topic.replace(TOPIC_SALIDAS_BASE, ""));
                 let estadoNube = parseInt(message.toString());
@@ -221,7 +384,7 @@
 
         function marcarHardwareOffline() {
             const label = document.getElementById("status-label");
-            label.innerText = "Alerta - Hardware Fuera de Línea";
+            label.innerText = "ALERTA - HARDWARE FUERA DE LÍNEA";
             label.className = "status-bar hardware-offline";
             ultimoValorPulso = 0; 
             if (watchdogHardware) {
