@@ -10,8 +10,10 @@
         h1 { color: #333; font-weight: 300; margin-bottom: 5px; }
         h2 { color: #555; font-weight: 400; margin-top: 30px; border-bottom: 2px solid #ccc; padding-bottom: 10px; max-width: 1000px; margin-left: auto; margin-right: auto;}
         
-        .status-bar { padding: 8px; margin-bottom: 20px; font-weight: bold; color: white; background-color: #e74c3c; border-radius: 5px; max-width: 350px; margin: 10px auto; transition: background-color 0.2s; }
+        /* Modificamos el estado por defecto a un gris neutro de espera */
+        .status-bar { padding: 8px; margin-bottom: 20px; font-weight: bold; color: white; background-color: #7f8c8d; border-radius: 5px; max-width: 350px; margin: 10px auto; transition: background-color 0.2s; }
         .connected { background-color: #2ecc71; }
+        .hardware-offline { background-color: #e74c3c; }
 
         .container-salidas { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; max-width: 1100px; margin: 0 auto; }
         .card-salida { background: white; padding: 20px; border-radius: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); border-top: 6px solid #ccc; display: flex; flex-direction: column; justify-content: space-between; align-items: center; transition: transform 0.2s; }
@@ -33,7 +35,7 @@
         
         .card-out-0 input:checked + .slider { background-color: #FF5733; }
         .card-out-1 input:checked + .slider { background-color: #33FF57; }
-        .card-out-2 input:checked + .slider { background-color: #3357FF; }
+        .card-out-2 input:checked + .slider = { background-color: #3357FF; }
         .card-out-3 input:checked + .slider { background-color: #F333FF; }
         .card-out-4 input:checked + .slider { background-color: #FFBD33; }
         .card-out-5 input:checked + .slider { background-color: #33FFF3; }
@@ -50,7 +52,7 @@
 </head>
 <body>
     <h1>Proyecto de Residencia (Control Mundial IoT)</h1>
-    <div id="status-label" class="status-bar">Alerta - Hardware Fuera de Línea</div>
+    <div id="status-label" class="status-bar">Conectando a la red IoT...</div>
     
     <h2>Control de Actuadores (Estable / Un Solo Pulso)</h2>
     <div class="container-salidas">
@@ -153,42 +155,55 @@
         const TOPIC_SALIDAS_BASE = "residencia/maria/salidas/";
         const TOPIC_ESTADO = "residencia/maria/estado";
 
-        let watchdogHardware = null; // Guardián de tiempo
+        let watchdogHardware = null;
 
         const client = mqtt.connect(MQTT_URL, {
             clientId: "WebClient_" + Math.random().toString(16).substr(2, 8)
         });
 
         client.on('connect', () => {
-            console.log("Conectado a la nube.");
+            console.log("Conectado al broker de la nube.");
             client.subscribe(TOPIC_ENTRADAS);
             client.subscribe(TOPIC_SALIDAS_BASE + "+"); 
             client.subscribe(TOPIC_ESTADO);
+            
+            // FILTRO DE ARRANQUE SEGURO: Al conectar a la nube, asumimos que está offline 
+            // hasta que llegue el primer paquete real generado por el bucle activo del ESP32.
+            setTimeout(() => {
+                if (!watchdogHardware) {
+                    marcarHardwareOffline();
+                }
+            }, 500); 
         });
 
         client.on('close', () => {
             marcarHardwareOffline();
         });
 
-        client.on('message', (topic, message) => {
-            // A. LÓGICA DEL GUARDIÁN DE CONEXIÓN REAL (WATCHDOG)
+        client.on('message', (topic, packet) => {
+            // A. Verificación estricta del pulso de vida constante
             if(topic === TOPIC_ESTADO) {
-                // Si llega el pulso, forzamos el estado a en línea
+                // CORRECCIÓN CLAVE: Ignoramos los paquetes retenidos viejos que tengan la bandera "retain" activa
+                if (packet.cmd === 'publish' && packet.retain) {
+                    console.log("Pulso de vida viejo (retenido) ignorado para evitar parpadeos falsos.");
+                    return; 
+                }
+
+                // Si es un pulso nuevo e instantáneo, el hardware está verdaderamente en línea
                 const label = document.getElementById("status-label");
                 label.innerText = "Conectado - Hardware en Línea";
                 label.className = "status-bar connected";
 
-                // Reseteamos el temporizador. Si en 3000ms (3s) no llega otro pulso, se declara offline
                 if (watchdogHardware) clearTimeout(watchdogHardware);
                 
                 watchdogHardware = setTimeout(() => {
                     marcarHardwareOffline();
-                }, 3000);
+                }, 2500); // Ventana de tolerancia de 2.5 segundos
             }
 
             // B. Manejo de sensores
             if(topic === TOPIC_ENTRADAS) {
-                let valorEntradas = parseInt(message.toString());
+                let valorEntradas = parseInt(packet.toString());
                 for(let i=0; i<8; i++) {
                     let led = document.getElementById(`pic-led-${i}`);
                     if((valorEntradas & (1 << i)) !== 0) { led.classList.add('activo'); } 
@@ -199,7 +214,7 @@
             // C. Sincronización de switches
             if(topic.startsWith(TOPIC_SALIDAS_BASE)) {
                 let idSalida = parseInt(topic.replace(TOPIC_SALIDAS_BASE, ""));
-                let estadoNube = parseInt(message.toString());
+                let estadoNube = parseInt(packet.toString());
                 if(idSalida >= 0 && idSalida <= 7) {
                     const checkbox = document.getElementById(`web-switch-${idSalida}`);
                     const modo = document.getElementById(`mode-${idSalida}`).value;
@@ -212,6 +227,10 @@
             const label = document.getElementById("status-label");
             label.innerText = "Alerta - Hardware Fuera de Línea";
             label.className = "status-bar hardware-offline";
+            if (watchdogHardware) {
+                clearTimeout(watchdogHardware);
+                watchdogHardware = null;
+            }
         }
 
         function publicarSalidaIoT(id, estado) {
