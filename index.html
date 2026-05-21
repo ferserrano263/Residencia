@@ -191,8 +191,9 @@
             <script>
                 let pulsosTemporizadores = Array(8).fill(null);
                 
-                // Bandera exclusiva para el modo pulso único
-                let ignorarRebotePulso = Array(8).fill(false);
+                // Esta bandera ahora SOLO controla que la interfaz visual no se trabe,
+                // ya no bloquea la escritura en la terminal de registros.
+                let bloquearSwitchPulso = Array(8).fill(false);
 
                 for(let i=0; i<8; i++) {
                     document.write(`
@@ -241,7 +242,7 @@
                         publicarSalidaIoT(id, estadoSincro);
                     } else if (modo === "pulso_unico") {
                         if (checkbox.checked) {
-                            ignorarRebotePulso[id] = true; 
+                            bloquearSwitchPulso[id] = true; 
                             publicarSalidaIoT(id, 1);
                             
                             const tiempoDuracion = parseInt(document.getElementById(`time-${id}`).value) || 1000;
@@ -249,7 +250,7 @@
 
                             pulsosTemporizadores[id] = setTimeout(() => {
                                 checkbox.checked = false;
-                                ignorarRebotePulso[id] = true; 
+                                bloquearSwitchPulso[id] = true; 
                                 publicarSalidaIoT(id, 0); 
                                 pulsosTemporizadores[id] = null;
                             }, tiempoDuracion);
@@ -298,6 +299,10 @@
 
         let watchdogHardware = null;
         let ultimoValorPulso = 0; 
+
+        // Variables locales para llevar el registro del último estado conocido de cada switch
+        // Esto evita que la terminal imprima líneas repetidas si la nube reenvía el mismo dato
+        let ultimoEstadoSwitch = Array(8).fill(0);
 
         function appendLog(tipo, texto) {
             const terminal = document.getElementById("terminal-log");
@@ -385,19 +390,21 @@
                     const checkbox = document.getElementById(`web-switch-${idSalida}`);
                     
                     if (checkbox) {
-                        // CORRECCIÓN FILTRADO: Solo bloqueamos el redibujado visual si estamos en modo pulso único
-                        if (ignorarRebotePulso[idSalida]) {
-                            ignorarRebotePulso[idSalida] = false;
+                        // LA CORRECCIÓN TOTAL: La impresión en la terminal es LIBRE para todos los dispositivos
+                        // Solo se imprime si hay un cambio real con respecto al último estado conocido de la red
+                        if (estadoNube !== ultimoEstadoSwitch[idSalida]) {
+                            ultimoEstadoSwitch[idSalida] = estadoNube;
                             appendLog("salida", `Salida Digital ${idSalida} conmutada a nivel lógico [${estadoNube === 1 ? 'ALTO (ON)' : 'BAJO (OFF)'}]`);
+                        }
+
+                        // El bloqueo de rebote ahora solo se aplica para no arruinar el temporizador visual del switch
+                        if (bloquearSwitchPulso[idSalida]) {
+                            bloquearSwitchPulso[idSalida] = false;
                             return; 
                         }
 
-                        let cambioDetectado = checkbox.checked !== (estadoNube === 1);
+                        // Para dispositivos remotos, actualiza la posición física del interruptor
                         checkbox.checked = (estadoNube === 1);
-                        
-                        if (cambioDetectado) {
-                            appendLog("salida", `Salida Digital ${idSalida} conmutada a nivel lógico [${estadoNube === 1 ? 'ALTO (ON)' : 'BAJO (OFF)'}]`);
-                        }
                     }
                 }
             }
