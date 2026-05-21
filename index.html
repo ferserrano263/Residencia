@@ -76,7 +76,7 @@
             font-size: 0.85rem;
             letter-spacing: 0.5px;
             text-transform: uppercase;
-            transition: all 0.2s;
+            transition: all 0.15s ease-in-out;
             border: 2px solid rgba(255, 255, 255, 0.2);
             position: relative;
             z-index: 10;
@@ -326,8 +326,7 @@
                 <span style="color:#64748b;">Nube EMQX Activa</span>
             </div>
             <div id="terminal-log" class="terminal-content">
-                <div class="terminal-line"><span class="terminal-time">[Sistema]</span> Inicializando variables y sockets...</div>
-            </div>
+                </div>
         </div>
     </div>
 
@@ -344,7 +343,6 @@
         let watchdogHardware = null;
         let ultimoValorPulso = 0; 
 
-        // Variables de Contadores Estadísticos
         let cuentaEntradas = 0;
         let cuentaSalidas = 0;
 
@@ -353,7 +351,6 @@
         const labelsGrafica = [];
         const datosGrafica = Array(8).fill(0).map(() => []);
         
-        // Inicializamos los últimos 10 puntos en cero
         for(let i=0; i<10; i++) {
             labelsGrafica.push("");
             for(let s=0; s<8; s++) datosGrafica[s].push(0);
@@ -384,6 +381,24 @@
             }
         });
 
+        // Función Auxiliar para imprimir en la Terminal de Eventos en Vivo
+        function appendLog(tipo, texto) {
+            const terminal = document.getElementById("terminal-log");
+            if (!terminal) return; // Candado de seguridad anti-congelamiento
+            
+            const tiempoStr = new Date().toLocaleTimeString();
+            let claseTag = tipo === "success" ? "terminal-tag-success" : "terminal-tag-info";
+            let tagTexto = tipo === "success" ? "[SENSOR]" : "[TELEMETRÍA]";
+
+            terminal.innerHTML += `
+                <div class="terminal-line">
+                    <span class="terminal-time">[${tiempoStr}]</span>
+                    <span class="${claseTag}">${tagTexto}</span> ${texto}
+                </div>
+            `;
+            terminal.scrollTop = terminal.scrollHeight;
+        }
+
         // --- Conexión al Cliente MQTT ---
         const client = mqtt.connect(MQTT_URL, {
             clientId: "WebClient_" + Math.random().toString(16).substr(2, 8)
@@ -393,4 +408,110 @@
             client.subscribe(TOPIC_ENTRADAS);
             client.subscribe(TOPIC_SALIDAS_BASE + "+"); 
             client.subscribe(TOPIC_ESTADO);
-            appendLog("info", "Conectado al
+            
+            // Ahora la función se ejecuta de forma segura después de que la terminal exista físicamente
+            appendLog("info", "Conectado al Broker EMQX de forma segura (WSS). En espera de hardware.");
+            
+            setTimeout(() => { if (!watchdogHardware) { marcarHardwareOffline(); } }, 800);
+        });
+
+        client.on('close', () => { marcarHardwareOffline(); });
+
+        client.on('message', (topic, message) => {
+            if(topic === TOPIC_ESTADO) {
+                let valorPulsoActual = parseInt(message.toString());
+                if (valorPulsoActual <= ultimoValorPulso) return; 
+
+                ultimoValorPulso = valorPulsoActual; 
+
+                const label = document.getElementById("status-label");
+                if (label.innerText !== "SISTEMA ONLINE - HARDWARE EN LÍNEA") {
+                    appendLog("info", "Conexión en tiempo real establecida con el ESP32.");
+                }
+                label.innerText = "SISTEMA ONLINE - HARDWARE EN LÍNEA";
+                label.className = "status-bar connected";
+
+                if (watchdogHardware) clearTimeout(watchdogHardware);
+                watchdogHardware = setTimeout(() => { marcarHardwareOffline(); }, 4000); 
+            }
+
+            if(topic === TOPIC_ENTRADAS) {
+                let valorEntradas = parseInt(message.toString());
+                cuentaEntradas++;
+                document.getElementById("metric-entradas").innerText = cuentaEntradas;
+                document.getElementById("metric-evento").innerText = `Lectura Sensor: 0x${valorEntradas.toString(16).toUpperCase()}`;
+
+                for(let i=0; i<8; i++) {
+                    let led = document.getElementById(`pic-led-${i}`);
+                    let bitActivo = (valorEntradas & (1 << i)) !== 0;
+                    
+                    if(bitActivo) {
+                        if (led && !led.classList.contains('activo')) {
+                            appendLog("success", `Sensor ${i} cambió de estado a: [ACTIVO]`);
+                        }
+                        if(led) led.classList.add('activo');
+                        datosGrafica[i].push(1);
+                    } else {
+                        if (led && led.classList.contains('activo')) {
+                            appendLog("success", `Sensor ${i} cambió de estado a: [INACTIVO]`);
+                        }
+                        if(led) led.classList.remove('activo');
+                        datosGrafica[i].push(0);
+                    }
+                    
+                    if(datosGrafica[i].length > 15) datosGrafica[i].shift();
+                }
+                
+                labelsGrafica.push(new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'}));
+                if(labelsGrafica.length > 15) labelsGrafica.shift();
+                realtimeChart.update();
+            }
+            
+            if(topic.startsWith(TOPIC_SALIDAS_BASE)) {
+                let idSalida = parseInt(topic.replace(TOPIC_SALIDAS_BASE, ""));
+                let estadoNube = parseInt(message.toString());
+                if(idSalida >= 0 && idSalida <= 7) {
+                    const checkbox = document.getElementById(`web-switch-${idSalida}`);
+                    const modo = document.getElementById(`mode-${idSalida}`).value;
+                    
+                    if (modo === "estable" && checkbox) {
+                        if (checkbox.checked !== (estadoNube === 1)) {
+                            appendLog("info", `Salida ${idSalida} conmutada vía remota a: [${estadoNube === 1 ? 'ON' : 'OFF'}]`);
+                            cuentaSalidas++;
+                            document.getElementById("metric-salidas").innerText = cuentaSalidas;
+                            document.getElementById("metric-evento").innerText = `Salida ${idSalida} -> ${estadoNube === 1 ? 'ON' : 'OFF'}`;
+                        }
+                        checkbox.checked = (estadoNube === 1);
+                    }
+                }
+            }
+        });
+
+        function marcarHardwareOffline() {
+            const label = document.getElementById("status-label");
+            if (label && label.innerText !== "ALERTA - HARDWARE FUERA DE LÍNEA") {
+                appendLog("info", "Fallo Crítico: Pérdida de pulso de hardware. Sistema Offline.");
+            }
+            if(label) {
+                label.innerText = "ALERTA - HARDWARE FUERA DE LÍNEA";
+                label.className = "status-bar hardware-offline";
+            }
+            ultimoValorPulso = 0; 
+            if (watchdogHardware) { clearTimeout(watchdogHardware); watchdogHardware = null; }
+        }
+
+        function publicarSalidaIoT(id, estado) {
+            if (client.connected) {
+                let topicDestino = TOPIC_SALIDAS_BASE + id;
+                let payload = estado.toString();
+                client.publish(topicDestino, payload, { qos: 1, retain: true });
+                
+                cuentaSalidas++;
+                document.getElementById("metric-salidas").innerText = cuentaSalidas;
+                document.getElementById("metric-evento").innerText = `Salida ${id} -> ${estado === 1 ? 'ON' : 'OFF'}`;
+                appendLog("info", `Comando local enviado: Salida ${id} seteada en [${estado === 1 ? 'ON' : 'OFF'}]`);
+            }
+        }
+    </script>
+</body>
+</html>
