@@ -191,8 +191,8 @@
             <script>
                 let pulsosTemporizadores = Array(8).fill(null);
                 
-                // Bandera para evitar que nuestro propio comando de red trabe los temporizadores
-                let ignorarReboteLocal = Array(8).fill(false);
+                // Bandera exclusiva para el modo pulso único
+                let ignorarRebotePulso = Array(8).fill(false);
 
                 for(let i=0; i<8; i++) {
                     document.write(`
@@ -241,7 +241,7 @@
                         publicarSalidaIoT(id, estadoSincro);
                     } else if (modo === "pulso_unico") {
                         if (checkbox.checked) {
-                            ignorarReboteLocal[id] = true; // Bloqueamos el eco de red entrante
+                            ignorarRebotePulso[id] = true; 
                             publicarSalidaIoT(id, 1);
                             
                             const tiempoDuracion = parseInt(document.getElementById(`time-${id}`).value) || 1000;
@@ -249,7 +249,7 @@
 
                             pulsosTemporizadores[id] = setTimeout(() => {
                                 checkbox.checked = false;
-                                ignorarReboteLocal[id] = true; // Bloqueamos el eco de red al apagar
+                                ignorarRebotePulso[id] = true; 
                                 publicarSalidaIoT(id, 0); 
                                 pulsosTemporizadores[id] = null;
                             }, tiempoDuracion);
@@ -287,7 +287,7 @@
     </div>
 
     <footer>
-        Desarrollado por: <strong>Maria Fernanda Serrano Escobedo</strong> | Proyecto de Titulación Profesional
+        Desarrollado por: <strong>Maria Fernanda Serrano Escobedo</strong> | Proyecto de Residencia
     </footer>
 
     <script>
@@ -385,12 +385,9 @@
                     const checkbox = document.getElementById(`web-switch-${idSalida}`);
                     
                     if (checkbox) {
-                        // REPARACIÓN AQUÍ: Si nosotros mismos causamos el evento por un pulso,
-                        // consumimos la bandera y dejamos que el temporizador local controle el switch.
-                        if (ignorarReboteLocal[idSalida]) {
-                            ignorarReboteLocal[idSalida] = false;
-                            
-                            // Imprimimos el log del evento de todas formas
+                        // CORRECCIÓN FILTRADO: Solo bloqueamos el redibujado visual si estamos en modo pulso único
+                        if (ignorarRebotePulso[idSalida]) {
+                            ignorarRebotePulso[idSalida] = false;
                             appendLog("salida", `Salida Digital ${idSalida} conmutada a nivel lógico [${estadoNube === 1 ? 'ALTO (ON)' : 'BAJO (OFF)'}]`);
                             return; 
                         }
