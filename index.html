@@ -87,10 +87,13 @@
         /* Panel de Métricas / KPIs */
         .metrics-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            grid-template-columns: 1fr 2fr auto;
             gap: 20px;
             margin-bottom: 30px;
+            align-items: center;
         }
+        @media (max-width: 768px) { .metrics-grid { grid-template-columns: 1fr; } }
+
         .metric-card {
             background: white;
             padding: 20px;
@@ -98,9 +101,39 @@
             border: 1px solid var(--borde-tarjeta);
             text-align: left;
             box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+            height: 100%;
+            box-sizing: border-box;
         }
         .metric-card .title { font-size: 0.8rem; color: var(--texto-mutated); font-weight: 600; text-transform: uppercase; }
         .metric-card .value { font-size: 1.8rem; font-weight: 700; color: var(--azul-industrial); margin-top: 5px; }
+
+        /* Botón de Reinicio Profesional */
+        .btn-reset {
+            background-color: #f1f5f9;
+            color: #475569;
+            border: 1px solid #cbd5e1;
+            padding: 15px 25px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: fit-content;
+        }
+        .btn-reset:hover {
+            background-color: #e2e8f0;
+            color: #1e293b;
+            border-color: #94a3b8;
+            transform: translateY(-1px);
+        }
+        .btn-reset:active {
+            transform: translateY(1px);
+        }
 
         h2 { 
             color: var(--azul-industrial); 
@@ -212,17 +245,16 @@
         
         <div class="metrics-grid">
             <div class="metric-card">
-                <div class="title">Ráfagas de Entrada</div>
-                <div id="metric-entradas" class="value">0</div>
-            </div>
-            <div class="metric-card">
                 <div class="title">Comandos de Salida</div>
                 <div id="metric-salidas" class="value">0</div>
             </div>
             <div class="metric-card">
-                <div class="title">Último Evento</div>
+                <div class="title">Último Evento del Sistema</div>
                 <div id="metric-evento" class="value" style="font-size:1.1rem; line-height:2.2rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Ninguno</div>
             </div>
+            <button class="btn-reset" onclick="reiniciarContadores Locales()">
+                Reiniciar Contadores
+            </button>
         </div>
 
         <h2>Control de Salidas Digitales</h2>
@@ -325,8 +357,7 @@
                 <span>Registros de Eventos Escalonados (Telemetry Logs)</span>
                 <span style="color:#64748b;">Nube EMQX Activa</span>
             </div>
-            <div id="terminal-log" class="terminal-content">
-                </div>
+            <div id="terminal-log" class="terminal-content"></div>
         </div>
     </div>
 
@@ -342,8 +373,6 @@
 
         let watchdogHardware = null;
         let ultimoValorPulso = 0; 
-
-        let cuentaEntradas = 0;
         let cuentaSalidas = 0;
 
         // --- Configuración de la Gráfica de Líneas Real-Time ---
@@ -381,10 +410,9 @@
             }
         });
 
-        // Función Auxiliar para imprimir en la Terminal de Eventos en Vivo
         function appendLog(tipo, texto) {
             const terminal = document.getElementById("terminal-log");
-            if (!terminal) return; // Candado de seguridad anti-congelamiento
+            if (!terminal) return; 
             
             const tiempoStr = new Date().toLocaleTimeString();
             let claseTag = tipo === "success" ? "terminal-tag-success" : "terminal-tag-info";
@@ -399,6 +427,14 @@
             terminal.scrollTop = terminal.scrollHeight;
         }
 
+        // --- Función para Reiniciar Contadores ---
+        function reiniciarContadoresLocales() {
+            cuentaSalidas = 0;
+            document.getElementById("metric-salidas").innerText = "0";
+            document.getElementById("metric-evento").innerText = "Contadores Reiniciados";
+            appendLog("info", "Contadores métricos de la interfaz restablecidos a cero.");
+        }
+
         // --- Conexión al Cliente MQTT ---
         const client = mqtt.connect(MQTT_URL, {
             clientId: "WebClient_" + Math.random().toString(16).substr(2, 8)
@@ -408,8 +444,6 @@
             client.subscribe(TOPIC_ENTRADAS);
             client.subscribe(TOPIC_SALIDAS_BASE + "+"); 
             client.subscribe(TOPIC_ESTADO);
-            
-            // Ahora la función se ejecuta de forma segura después de que la terminal exista físicamente
             appendLog("info", "Conectado al Broker EMQX de forma segura (WSS). En espera de hardware.");
             
             setTimeout(() => { if (!watchdogHardware) { marcarHardwareOffline(); } }, 800);
@@ -437,9 +471,6 @@
 
             if(topic === TOPIC_ENTRADAS) {
                 let valorEntradas = parseInt(message.toString());
-                cuentaEntradas++;
-                document.getElementById("metric-entradas").innerText = cuentaEntradas;
-                document.getElementById("metric-evento").innerText = `Lectura Sensor: 0x${valorEntradas.toString(16).toUpperCase()}`;
 
                 for(let i=0; i<8; i++) {
                     let led = document.getElementById(`pic-led-${i}`);
@@ -467,21 +498,23 @@
                 realtimeChart.update();
             }
             
+            // Sincronización Multi-dispositivo global (Sincroniza switches en pantallas remotas)
             if(topic.startsWith(TOPIC_SALIDAS_BASE)) {
                 let idSalida = parseInt(topic.replace(TOPIC_SALIDAS_BASE, ""));
                 let estadoNube = parseInt(message.toString());
                 if(idSalida >= 0 && idSalida <= 7) {
                     const checkbox = document.getElementById(`web-switch-${idSalida}`);
-                    const modo = document.getElementById(`mode-${idSalida}`).value;
                     
-                    if (modo === "estable" && checkbox) {
+                    if (checkbox) {
+                        // Si el estado en la pantalla difiere de lo que dicta la nube, sincronizamos visualmente
                         if (checkbox.checked !== (estadoNube === 1)) {
-                            appendLog("info", `Salida ${idSalida} conmutada vía remota a: [${estadoNube === 1 ? 'ON' : 'OFF'}]`);
+                            checkbox.checked = (estadoNube === 1);
+                            
                             cuentaSalidas++;
                             document.getElementById("metric-salidas").innerText = cuentaSalidas;
                             document.getElementById("metric-evento").innerText = `Salida ${idSalida} -> ${estadoNube === 1 ? 'ON' : 'OFF'}`;
+                            appendLog("info", `Sincronización Remota: Salida ${idSalida} detectada en [${estadoNube === 1 ? 'ON' : 'OFF'}]`);
                         }
-                        checkbox.checked = (estadoNube === 1);
                     }
                 }
             }
@@ -504,12 +537,8 @@
             if (client.connected) {
                 let topicDestino = TOPIC_SALIDAS_BASE + id;
                 let payload = estado.toString();
+                // Publicamos con Retain para asegurar que el estado quede grabado en el Broker
                 client.publish(topicDestino, payload, { qos: 1, retain: true });
-                
-                cuentaSalidas++;
-                document.getElementById("metric-salidas").innerText = cuentaSalidas;
-                document.getElementById("metric-evento").innerText = `Salida ${id} -> ${estado === 1 ? 'ON' : 'OFF'}`;
-                appendLog("info", `Comando local enviado: Salida ${id} seteada en [${estado === 1 ? 'ON' : 'OFF'}]`);
             }
         }
     </script>
