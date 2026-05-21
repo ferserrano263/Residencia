@@ -155,7 +155,7 @@
         const TOPIC_ESTADO = "residencia/maria/estado";
 
         let watchdogHardware = null;
-        let ultimoValorPulso = 0; // Guardará el valor numérico del pulso anterior
+        let ultimoValorPulso = 0; 
 
         const client = mqtt.connect(MQTT_URL, {
             clientId: "WebClient_" + Math.random().toString(16).substr(2, 8)
@@ -166,7 +166,6 @@
             client.subscribe(TOPIC_SALIDAS_BASE + "+"); 
             client.subscribe(TOPIC_ESTADO);
             
-            // Si a los 800ms de conectar no ha llegado un pulso numérico fresco, declaramos offline
             setTimeout(() => {
                 if (!watchdogHardware) { marcarHardwareOffline(); }
             }, 800);
@@ -175,18 +174,15 @@
         client.on('close', () => { marcarHardwareOffline(); });
 
         client.on('message', (topic, message) => {
-            // A. FILTRO ESTRICTO POR SELLO DE TIEMPO DINÁMICO
+            // A. FILTRO POR SELLO DE TIEMPO DINÁMICO
             if(topic === TOPIC_ESTADO) {
                 let valorPulsoActual = parseInt(message.toString());
 
-                // Si el número que llega es menor o igual al último que vimos, 
-                // significa que es un dato viejo guardado en la caché de la nube. ¡LO BLOQUEAMOS!
                 if (valorPulsoActual <= ultimoValorPulso) {
                     console.log("Falso positivo bloqueado con éxito.");
                     return; 
                 }
 
-                // Si el número es mayor, es una señal fresca generada en este milisegundo por el ESP32
                 ultimoValorPulso = valorPulsoActual; 
 
                 const label = document.getElementById("status-label");
@@ -194,9 +190,11 @@
                 label.className = "status-bar connected";
 
                 if (watchdogHardware) clearTimeout(watchdogHardware);
+                
+                // Ventana de tolerancia ampliada a 4 segundos para absorber ráfagas de la UART
                 watchdogHardware = setTimeout(() => {
                     marcarHardwareOffline();
-                }, 2500); 
+                }, 4000); 
             }
 
             // B. Manejo de sensores
@@ -225,7 +223,7 @@
             const label = document.getElementById("status-label");
             label.innerText = "Alerta - Hardware Fuera de Línea";
             label.className = "status-bar hardware-offline";
-            ultimoValorPulso = 0; // Reseteamos el filtro al caerse la conexión
+            ultimoValorPulso = 0; 
             if (watchdogHardware) {
                 clearTimeout(watchdogHardware);
                 watchdogHardware = null;
