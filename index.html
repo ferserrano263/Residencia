@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Configurador de Residencia - IoT Cloud Sincronizado</title>
+    <title>Configurador de Residencia - IoT Cloud Total</title>
     <script src="https://unpkg.com/mqtt@4.3.7/dist/mqtt.min.js" type="text/javascript"></script>
     <style>
         body { 
@@ -80,9 +80,6 @@
         <script>
             const coloresSalidas = ['#FF5733','#33FF57','#3357FF','#F333FF','#FFBD33','#33FFF3','#8D33FF','#FF3380'];
             let pulsosTemporizadores = Array(8).fill(null);
-            
-            // Bandera temporal para evitar bucles infinitos de red al recibir nuestro propio mensaje
-            let ignorarMensajeEntrante = false; 
 
             for(let i=0; i<8; i++) {
                 document.write(`
@@ -123,7 +120,7 @@
                     grupoTiempo.style.display = "none";
                     if(checkbox.checked) {
                         checkbox.checked = false;
-                        publicarSalidaIoT(id);
+                        publicarSalidaIoT(id, 0);
                     }
                 }
             }
@@ -131,19 +128,22 @@
             function manejadorSwitch(id) {
                 const modo = document.getElementById(`mode-${id}`).value;
                 const checkbox = document.getElementById(`web-switch-${id}`);
+                
+                // Determinamos el estado numérico (1 = encendido, 0 = apagado)
+                let estadoSincro = checkbox.checked ? 1 : 0;
 
                 if (modo === "estable") {
-                    publicarSalidaIoT(id);
+                    publicarSalidaIoT(id, estadoSincro);
                 } else if (modo === "pulso_unico") {
                     if (checkbox.checked) {
-                        publicarSalidaIoT(id);
+                        publicarSalidaIoT(id, 1);
                         const tiempoDuracion = parseInt(document.getElementById(`time-${id}`).value) || 1000;
                         
                         if(pulsosTemporizadores[id] !== null) clearTimeout(pulsosTemporizadores[id]);
 
                         pulsosTemporizadores[id] = setTimeout(() => {
                             checkbox.checked = false;
-                            publicarSalidaIoT(id); 
+                            publicarSalidaIoT(id, 0); 
                             pulsosTemporizadores[id] = null;
                         }, tiempoDuracion);
                     } else {
@@ -151,7 +151,7 @@
                             clearTimeout(pulsosTemporizadores[id]);
                             pulsosTemporizadores[id] = null;
                         }
-                        publicarSalidaIoT(id);
+                        publicarSalidaIoT(id, 0);
                     }
                 }
             }
@@ -175,8 +175,10 @@
     <script>
         // --- CONFIGURACIÓN PROTOCOLO MQTT NUBE SEGURO CON EMQX ---
         const MQTT_URL = "wss://broker.emqx.io:8084/mqtt";
-        const TOPIC_SALIDAS = "residencia/maria/salidas";
         const TOPIC_ENTRADAS = "residencia/maria/entradas";
+        
+        // Cada salida tendrá ahora su propia sub-carpeta (Sub-topic) retenida en la nube
+        const TOPIC_SALIDAS_BASE = "residencia/maria/salidas/";
 
         const client = mqtt.connect(MQTT_URL, {
             clientId: "WebClient_" + Math.random().toString(16).substr(2, 8)
@@ -188,9 +190,10 @@
             label.innerText = "Conectado Globalmente (Nube Activa)";
             label.classList.add("connected");
             
-            // --- AQUÍ ESTÁ LA MEJORA: Nos suscribimos a ambos canales ---
             client.subscribe(TOPIC_ENTRADAS);
-            client.subscribe(TOPIC_SALIDAS); // Escucha lo que hacen otros teléfonos en las salidas
+            
+            // Nos suscribimos usando el comodín '+' para escuchar cualquier cambio de las 8 salidas
+            client.subscribe(TOPIC_SALIDAS_BASE + "+"); 
         });
 
         client.on('close', () => {
@@ -199,9 +202,9 @@
             label.classList.remove("connected");
         });
 
-        // Recepción centralizada de mensajes de internet
+        // Recepción y distribución de datos de internet
         client.on('message', (topic, message) => {
-            // 1. Manejo de sensores (PORTB del PIC)
+            // 1. Manejo de sensores físicos del PIC
             if(topic === TOPIC_ENTRADAS) {
                 let valorEntradas = parseInt(message.toString());
                 for(let i=0; i<8; i++) {
@@ -214,31 +217,32 @@
                 }
             }
             
-            // 2. Sincronización multi-dispositivo de los switches de salida
-            if(topic === TOPIC_SALIDAS) {
-                // Si nosotros mismos enviamos el comando, ignoramos el mensaje para no interferir con el clic
-                if (ignorarMensajeEntrante) {
-                    ignorarMensajeEntrante = false;
-                    return;
-                }
+            // 2. Sincronización y Memoria de los interruptores de salida
+            if(topic.startsWith(TOPIC_SALIDAS_BASE)) {
+                // Extrae el número del actuador desde la URL del tópico (ej: "residencia/maria/salidas/3" -> 3)
+                let idSalida = parseInt(topic.replace(TOPIC_SALIDAS_BASE, ""));
+                let estadoNube = parseInt(message.toString()); // Recibe un '1' o un '0'
                 
-                let idSalida = parseInt(message.toString());
                 if(idSalida >= 0 && idSalida <= 7) {
                     const checkbox = document.getElementById(`web-switch-${idSalida}`);
                     const modo = document.getElementById(`mode-${idSalida}`).value;
                     
-                    // Sincroniza el interruptor de forma remota únicamente si está en modo estable
+                    // Solo actualiza la interfaz si el interruptor está en modo Estable
                     if (modo === "estable") {
-                        checkbox.checked = !checkbox.checked;
+                        checkbox.checked = (estadoNube === 1);
                     }
                 }
             }
         });
 
-        function publicarSalidaIoT(id) {
+        // Modificamos la publicación para enviar el ID del pin y su estado físico real retenido
+        function publicarSalidaIoT(id, estado) {
             if (client.connected) {
-                ignorarMensajeEntrante = true; // Bloquea momentáneamente el rebote de red propio
-                client.publish(TOPIC_SALIDAS, id.toString());
+                let topicDestino = TOPIC_SALIDAS_BASE + id;
+                let payload = estado.toString();
+                
+                // qos: 1 asegura la entrega y retain: true obliga a la nube a recordar el dato para siempre
+                client.publish(topicDestino, payload, { qos: 1, retain: true });
             } else {
                 console.log("No conectado al broker.");
             }
