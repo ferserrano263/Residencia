@@ -171,7 +171,48 @@
         .terminal-tag-info { color: #60a5fa; }
         .terminal-tag-output { color: #f43f5e; } 
 
-        footer { width: 100%; background-color: #0f172a; color: #94a3b8; padding: 20px; box-sizing: border-box; text-align: center; font-size: 0.85rem; border-top: 1px solid #1e293b; }
+        /* Panel de Gestión de Red */
+        .network-admin-panel {
+            background: #fff;
+            border: 1px solid var(--borde-tarjeta);
+            border-radius: 12px;
+            padding: 20px;
+            margin-top: 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }
+        @media (max-width: 600px) {
+            .network-admin-panel { flex-direction: column; text-align: center; gap: 15px; }
+        }
+        .network-admin-text h4 { margin: 0; color: var(--azul-industrial); font-size: 1rem; font-weight: 600; }
+        .network-admin-text p { margin: 4px 0 0 0; color: var(--texto-mutated); font-size: 0.8rem; }
+        
+        .btn-network-reset {
+            background-color: var(--azul-electrico);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.2);
+        }
+        .btn-network-reset:hover {
+            background-color: #1d4ed8;
+            transform: translateY(-1px);
+            box-shadow: 0 10px 15px -3px rgba(37, 99, 235, 0.3);
+        }
+        .btn-network-reset:active {
+            transform: translateY(1px);
+        }
+        
+        footer { width: 100%; background-color: #0f172a; color: #94a3b8; padding: 20px; box-sizing: border-box; text-align: center; font-size: 0.85rem; border-top: 1px solid #1e293b; margin-top: 40px; }
         footer strong { color: #f1f5f9; font-weight: 500; }
     </style>
 </head>
@@ -190,9 +231,6 @@
         <div class="container-salidas">
             <script>
                 let pulsosTemporizadores = Array(8).fill(null);
-                
-                // Esta bandera ahora SOLO controla que la interfaz visual no se trabe,
-                // ya no bloquea la escritura en la terminal de registros.
                 let bloquearSwitchPulso = Array(8).fill(false);
 
                 for(let i=0; i<8; i++) {
@@ -285,6 +323,16 @@
             </div>
             <div id="terminal-log" class="terminal-content"></div>
         </div>
+
+        <div class="network-admin-panel">
+            <div class="network-admin-text">
+                <h4>Configuración del Enlace Inalámbrico</h4>
+                <p>Permite migrar el sistema local a una nueva red inalámbrica abriendo el portal de configuración bajo demanda.</p>
+            </div>
+            <button class="btn-network-reset" onclick="enviarComandoResetRed()">
+                Red Wi-Fi
+            </button>
+        </div>
     </div>
 
     <footer>
@@ -296,12 +344,10 @@
         const TOPIC_ENTRADAS = "residencia/maria/entradas";
         const TOPIC_SALIDAS_BASE = "residencia/maria/salidas/";
         const TOPIC_ESTADO = "residencia/maria/estado";
+        const TOPIC_RESET_RED = "residencia/maria/control/reset_wifi";
 
         let watchdogHardware = null;
         let ultimoValorPulso = 0; 
-
-        // Variables locales para llevar el registro del último estado conocido de cada switch
-        // Esto evita que la terminal imprima líneas repetidas si la nube reenvía el mismo dato
         let ultimoEstadoSwitch = Array(8).fill(0);
 
         function appendLog(tipo, texto) {
@@ -390,20 +436,16 @@
                     const checkbox = document.getElementById(`web-switch-${idSalida}`);
                     
                     if (checkbox) {
-                        // LA CORRECCIÓN TOTAL: La impresión en la terminal es LIBRE para todos los dispositivos
-                        // Solo se imprime si hay un cambio real con respecto al último estado conocido de la red
                         if (estadoNube !== ultimoEstadoSwitch[idSalida]) {
                             ultimoEstadoSwitch[idSalida] = estadoNube;
                             appendLog("salida", `Salida Digital ${idSalida} conmutada a nivel lógico [${estadoNube === 1 ? 'ALTO (ON)' : 'BAJO (OFF)'}]`);
                         }
 
-                        // El bloqueo de rebote ahora solo se aplica para no arruinar el temporizador visual del switch
                         if (bloquearSwitchPulso[idSalida]) {
                             bloquearSwitchPulso[idSalida] = false;
                             return; 
                         }
 
-                        // Para dispositivos remotos, actualiza la posición física del interruptor
                         checkbox.checked = (estadoNube === 1);
                     }
                 }
@@ -428,6 +470,20 @@
                 let topicDestino = TOPIC_SALIDAS_BASE + id;
                 let payload = estado.toString();
                 client.publish(topicDestino, payload, { qos: 1, retain: true });
+            }
+        }
+
+        function enviarComandoResetRed() {
+            if (!client.connected) {
+                alert("Error: No hay conexión con el Broker MQTT en este momento.");
+                return;
+            }
+            
+            let confirmacion = confirm("¿Estás segura de que deseas vincular el sistema a una nueva red inalámbrica? Esto habilitará el portal de configuración.");
+            
+            if (confirmacion) {
+                client.publish(TOPIC_RESET_RED, "RESET", { qos: 1 });
+                appendLog("info", "Solicitud de migración de enlace inalámbrico enviada a la nube EMQX.");
             }
         }
     </script>
