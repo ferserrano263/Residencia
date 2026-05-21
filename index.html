@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Configurador de Residencia - IoT Cloud</title>
+    <script src="https://unpkg.com/mqtt@4.3.7/dist/mqtt.min.js" type="text/javascript"></script>
+    <style>
+        body { 
+            font-family: 'Segoe UI', sans-serif; 
+            text-align: center; 
+            background-color: #f0f2f5; 
+            margin: 0; 
+            padding: 20px;
+        }
+        h1 { color: #333; font-weight: 300; margin-bottom: 5px; }
+        h2 { color: #555; font-weight: 400; margin-top: 30px; border-bottom: 2px solid #ccc; padding-bottom: 10px; max-width: 1000px; margin-left: auto; margin-right: auto;}
+        
+        .status-bar { padding: 8px; margin-bottom: 20px; font-weight: bold; color: white; background-color: #e74c3c; border-radius: 5px; max-width: 350px; margin: 10px auto; transition: background-color 0.3s; }
+        .connected { background-color: #2ecc71; }
+
+        .container-salidas {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 20px;
+            max-width: 1100px;
+            margin: 0 auto;
+        }
+        .card-salida { 
+            background: white; 
+            padding: 20px; 
+            border-radius: 15px; 
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            border-top: 6px solid #ccc;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            align-items: center;
+            transition: transform 0.2s;
+        }
+        .card-salida:hover { transform: translateY(-3px); }
+        
+        .card-out-0 { border-top-color: #FF5733; } .card-out-1 { border-top-color: #33FF57; }
+        .card-out-2 { border-top-color: #3357FF; } .card-out-3 { border-top-color: #F333FF; }
+        .card-out-4 { border-top-color: #FFBD33; } .card-out-5 { border-top-color: #33FFF3; }
+        .card-out-6 { border-top-color: #8D33FF; } .card-out-7 { border-top-color: #FF3380; }
+
+        .config-group { text-align: left; font-size: 0.9em; color: #555; width: 100%; margin: 12px 0; }
+        .config-group label { display: block; margin-bottom: 5px; font-weight: bold; }
+        .config-group select, .config-group input[type="number"] { width: 100%; padding: 6px; border-radius: 6px; border: 1px solid #ccc; box-sizing: border-box; background-color: #fff; }
+
+        .switch { position: relative; display: inline-block; width: 60px; height: 34px; margin-top: 10px; }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; transition: .4s; border-radius: 34px; }
+        .slider:before { position: absolute; content: ""; height: 26px; width: 26px; left: 4px; bottom: 4px; background-color: white; transition: .4s; border-radius: 50%; }
+        
+        .card-out-0 input:checked + .slider { background-color: #FF5733; }
+        .card-out-1 input:checked + .slider { background-color: #33FF57; }
+        .card-out-2 input:checked + .slider { background-color: #3357FF; }
+        .card-out-3 input:checked + .slider { background-color: #F333FF; }
+        .card-out-4 input:checked + .slider { background-color: #FFBD33; }
+        .card-out-5 input:checked + .slider { background-color: #33FFF3; }
+        .card-out-6 input:checked + .slider { background-color: #8D33FF; }
+        .card-out-7 input:checked + .slider { background-color: #FF3380; }
+        input:checked + .slider:before { transform: translateX(26px); }
+
+        .container-entradas { display: flex; justify-content: center; gap: 15px; flex-wrap: wrap; max-width: 1000px; margin: 20px auto 0 auto; }
+        .card-entrada { background: white; padding: 15px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); width: 95px; text-align: center; border-bottom: 4px solid #7f8c8d; }
+        .led-grafico { width: 30px; height: 30px; border-radius: 50%; background-color: #bdc3c7; margin: 10px auto 0 auto; box-shadow: inset 0 2px 5px rgba(0,0,0,0.2); transition: background-color 0.15s, box-shadow 0.15s; }
+        .led-grafico.activo { background-color: #3498db; box-shadow: 0 0 15px #3498db, inset 0 2px 5px rgba(255,255,255,0.6); }
+        .label-entrada { font-size: 0.85em; color: #2c3e50; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <h1>Proyecto de Residencia (Control Mundial IoT)</h1>
+    <div id="status-label" class="status-bar">Conectando a la red IoT...</div>
+    
+    <h2>Control de Actuadores (Estable / Un Solo Pulso)</h2>
+    <div class="container-salidas">
+        <script>
+            const coloresSalidas = ['#FF5733','#33FF57','#3357FF','#F333FF','#FFBD33','#33FFF3','#8D33FF','#FF3380'];
+            let pulsosTemporizadores = Array(8).fill(null);
+
+            for(let i=0; i<8; i++) {
+                document.write(`
+                    <div class="card-salida card-out-${i}">
+                        <h3 style="color: ${coloresSalidas[i]}; margin: 0 0 10px 0;">Actuador ${i}</h3>
+                        <div class="config-group">
+                            <label>Modo de Trabajo:</label>
+                            <select id="mode-${i}" onchange="cambiarModoTrabajo(${i})">
+                                <option value="estable">Estable (Normal)</option>
+                                <option value="pulso_unico">Un Solo Pulso</option>
+                            </select>
+                        </div>
+                        <div class="config-group" id="time-group-${i}" style="display: none;">
+                            <label>Duración (ms):</label>
+                            <input type="number" id="time-${i}" value="1000" min="50" step="50">
+                        </div>
+                        <label class="switch">
+                            <input type="checkbox" id="web-switch-${i}" onclick="manejadorSwitch(${i})">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                `);
+            }
+
+            function cambiarModoTrabajo(id) {
+                const modo = document.getElementById(`mode-${id}`).value;
+                const grupoTiempo = document.getElementById(`time-group-${id}`);
+                const checkbox = document.getElementById(`web-switch-${id}`);
+                
+                if(pulsosTemporizadores[id] !== null) {
+                    clearTimeout(pulsosTemporizadores[id]);
+                    pulsosTemporizadores[id] = null;
+                }
+
+                if (modo === "pulso_unico") {
+                    grupoTiempo.style.display = "block";
+                } else {
+                    grupoTiempo.style.display = "none";
+                    if(checkbox.checked) {
+                        checkbox.checked = false;
+                        publicarSalidaIoT(id);
+                    }
+                }
+            }
+
+            function manejadorSwitch(id) {
+                const modo = document.getElementById(`mode-${id}`).value;
+                const checkbox = document.getElementById(`web-switch-${id}`);
+
+                if (modo === "estable") {
+                    publicarSalidaIoT(id);
+                } else if (modo === "pulso_unico") {
+                    if (checkbox.checked) {
+                        publicarSalidaIoT(id);
+                        const tiempoDuracion = parseInt(document.getElementById(`time-${id}`).value) || 1000;
+                        
+                        if(pulsosTemporizadores[id] !== null) clearTimeout(pulsosTemporizadores[id]);
+
+                        pulsosTemporizadores[id] = setTimeout(() => {
+                            checkbox.checked = false;
+                            publicarSalidaIoT(id); 
+                            pulsosTemporizadores[id] = null;
+                        }, tiempoDuracion);
+                    } else {
+                        if(pulsosTemporizadores[id] !== null) {
+                            clearTimeout(pulsosTemporizadores[id]);
+                            pulsosTemporizadores[id] = null;
+                        }
+                        publicarSalidaIoT(id);
+                    }
+                }
+            }
+        </script>
+    </div>
+
+    <h2>Monitoreo de Sensores (Entradas PORTB del PIC)</h2>
+    <div class="container-entradas">
+        <script>
+            for(let i=0; i<8; i++) {
+                document.write(`
+                    <div class="card-entrada">
+                        <span class="label-entrada">Sensor RB${i}</span>
+                        <div class="led-grafico" id="pic-led-${i}"></div>
+                    </div>
+                `);
+            }
+        </script>
+    </div>
+
+    <script>
+        // --- CONFIGURACIÓN PROTOCOLO MQTT NUBE SEGURO CON EMQX ---
+        // Usamos el puerto seguro de WebSockets cifrados (WSS) obligado por GitHub
+        const MQTT_URL = "wss://broker.emqx.io:8084/mqtt";
+        const TOPIC_SALIDAS = "residencia/maria/salidas";
+        const TOPIC_ENTRADAS = "residencia/maria/entradas";
+
+        console.log("Iniciando cliente MQTT.js...");
+        const client = mqtt.connect(MQTT_URL, {
+            clientId: "WebClient_" + Math.random().toString(16).substr(2, 8)
+        });
+
+        client.on('connect', () => {
+            console.log("¡Conectado exitosamente al broker EMQX!");
+            const label = document.getElementById("status-label");
+            label.innerText = "Conectado Globalmente (Nube Activa)";
+            label.classList.add("connected");
+            client.subscribe(TOPIC_ENTRADAS);
+        });
+
+        client.on('error', (err) => {
+            console.error("Error de conexión:", err);
+        });
+
+        client.on('close', () => {
+            const label = document.getElementById("status-label");
+            label.innerText = "Conexión Perdida. Reconectando...";
+            label.classList.remove("connected");
+        });
+
+        // Recepción de sensores del PORTB del PIC
+        client.on('message', (topic, message) => {
+            if(topic === TOPIC_ENTRADAS) {
+                let valorEntradas = parseInt(message.toString());
+                for(let i=0; i<8; i++) {
+                    let led = document.getElementById(`pic-led-${i}`);
+                    if((valorEntradas & (1 << i)) !== 0) {
+                        led.classList.add('activo');
+                    } else {
+                        led.classList.remove('activo');
+                    }
+                }
+            }
+        });
+
+        function publicarSalidaIoT(id) {
+            if (client.connected) {
+                client.publish(TOPIC_SALIDAS, id.toString());
+            } else {
+                console.log("No conectado al broker.");
+            }
+        }
+    </script>
+</body>
+</html>
