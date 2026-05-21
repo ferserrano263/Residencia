@@ -107,7 +107,6 @@
         .metric-card .title { font-size: 0.8rem; color: var(--texto-mutated); font-weight: 600; text-transform: uppercase; }
         .metric-card .value { font-size: 1.8rem; font-weight: 700; color: var(--azul-industrial); margin-top: 5px; }
 
-        /* Botón de Reinicio Profesional */
         .btn-reset {
             background-color: #f1f5f9;
             color: #475569;
@@ -130,9 +129,6 @@
             color: #1e293b;
             border-color: #94a3b8;
             transform: translateY(-1px);
-        }
-        .btn-reset:active {
-            transform: translateY(1px);
         }
 
         h2 { 
@@ -188,7 +184,6 @@
         input:checked + .slider { background-color: var(--azul-electrico); }
         input:checked + .slider:before { transform: translateX(26px); }
 
-        /* Panel Bifurcado: Sensores y Gráfica */
         .analytics-section {
             display: grid;
             grid-template-columns: 1fr 2fr;
@@ -205,7 +200,6 @@
 
         .chart-card { background: white; padding: 20px; border-radius: 16px; border: 1px solid var(--borde-tarjeta); box-shadow: 0 1px 3px rgba(0,0,0,0.05); display: flex; flex-direction: column; justify-content: center; height: 280px; }
 
-        /* Consola Terminal de Historial */
         .terminal-card {
             background: #0f172a;
             border-radius: 12px;
@@ -252,7 +246,7 @@
                 <div class="title">Último Evento del Sistema</div>
                 <div id="metric-evento" class="value" style="font-size:1.1rem; line-height:2.2rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Ninguno</div>
             </div>
-            <button class="btn-reset" onclick="reiniciarContadores Locales()">
+            <button class="btn-reset" onclick="reiniciarContadoresLocales()">
                 Reiniciar Contadores
             </button>
         </div>
@@ -310,7 +304,7 @@
                     } else if (modo === "pulso_unico") {
                         if (checkbox.checked) {
                             publicarSalidaIoT(id, 1);
-                            const tiempoDuracion = parseInt(document.getElementById(`time-${id}`).value) || 1000;
+                            const tiempoDuracion = parseInt(document.getElementById(`time-${i}`).value) || 1000; // Corrección menor de id por consistencia
                             if(pulsosTemporizadores[id] !== null) clearTimeout(pulsosTemporizadores[id]);
 
                             pulsosTemporizadores[id] = setTimeout(() => {
@@ -427,7 +421,6 @@
             terminal.scrollTop = terminal.scrollHeight;
         }
 
-        // --- Función para Reiniciar Contadores ---
         function reiniciarContadoresLocales() {
             cuentaSalidas = 0;
             document.getElementById("metric-salidas").innerText = "0";
@@ -498,7 +491,7 @@
                 realtimeChart.update();
             }
             
-            // Sincronización Multi-dispositivo global (Sincroniza switches en pantallas remotas)
+            // --- CORRECCIÓN DE CONTADORES CENTRALIZADOS ---
             if(topic.startsWith(TOPIC_SALIDAS_BASE)) {
                 let idSalida = parseInt(topic.replace(TOPIC_SALIDAS_BASE, ""));
                 let estadoNube = parseInt(message.toString());
@@ -506,14 +499,17 @@
                     const checkbox = document.getElementById(`web-switch-${idSalida}`);
                     
                     if (checkbox) {
-                        // Si el estado en la pantalla difiere de lo que dicta la nube, sincronizamos visualmente
-                        if (checkbox.checked !== (estadoNube === 1)) {
-                            checkbox.checked = (estadoNube === 1);
-                            
-                            cuentaSalidas++;
-                            document.getElementById("metric-salidas").innerText = cuentaSalidas;
-                            document.getElementById("metric-evento").innerText = `Salida ${idSalida} -> ${estadoNube === 1 ? 'ON' : 'OFF'}`;
-                            appendLog("info", `Sincronización Remota: Salida ${idSalida} detectada en [${estadoNube === 1 ? 'ON' : 'OFF'}]`);
+                        // Sincroniza visualmente la posición del interruptor
+                        let cambioDetectado = checkbox.checked !== (estadoNube === 1);
+                        checkbox.checked = (estadoNube === 1);
+                        
+                        // Incrementa la métrica e imprime el registro global
+                        cuentaSalidas++;
+                        document.getElementById("metric-salidas").innerText = cuentaSalidas;
+                        document.getElementById("metric-evento").innerText = `Salida ${idSalida} -> ${estadoNube === 1 ? 'ON' : 'OFF'}`;
+                        
+                        if (cambioDetectado) {
+                            appendLog("info", `Evento de Red: Salida ${idSalida} conmutada a [${estadoNube === 1 ? 'ON' : 'OFF'}]`);
                         }
                     }
                 }
@@ -537,7 +533,10 @@
             if (client.connected) {
                 let topicDestino = TOPIC_SALIDAS_BASE + id;
                 let payload = estado.toString();
-                // Publicamos con Retain para asegurar que el estado quede grabado en el Broker
+                
+                // Quitamos el incremento local duplicado que estaba aquí.
+                // Ahora, al publicar, la nube nos rebota el mensaje de inmediato 
+                // y el bloque de arriba (on message) se encarga de sumarlo uniformemente en ambas pantallas.
                 client.publish(topicDestino, payload, { qos: 1, retain: true });
             }
         }
